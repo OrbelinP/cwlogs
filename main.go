@@ -1,0 +1,192 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/alecthomas/kong"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+type CLI struct {
+	cw *cloudwatchlogs.Client
+
+	View ViewCmd `cmd:"" help:"TUI version 2"`
+
+	Pattern *string       `name:"pattern" help:"CloudWatch describe log groups pattern"`
+	Since   time.Duration `name:"since" default:"1h" help:"CloudWatch describe log groups since"`
+
+	Timeout time.Duration `name:"timeout" default:"1h" help:"Timeout for tailing selected log group"`
+}
+
+type ViewCmd struct{}
+
+type LogGroupDetails struct {
+	FullName     string
+	ShortName    string
+	Arn          string
+	CreationTime string
+	Age          string
+}
+
+func main() {
+	cfg, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		panic(err)
+	}
+
+	kongCtx := kong.Parse(&CLI{
+		cw: cloudwatchlogs.NewFromConfig(cfg),
+	})
+	err = kongCtx.Run()
+	kongCtx.FatalIfErrorf(err)
+}
+
+func (cli *CLI) listLogGroups() ([]LogGroupDetails, error) {
+	in := &cloudwatchlogs.DescribeLogGroupsInput{
+		LogGroupNamePattern: cli.Pattern,
+	}
+
+	first := true
+	result := make([]LogGroupDetails, 0)
+	for first || in.NextToken != nil {
+		first = false
+
+		out, err := cli.cw.DescribeLogGroups(context.Background(), in)
+		if err != nil {
+			return nil, fmt.Errorf("describing log groups: %w", err)
+		}
+
+		for _, g := range out.LogGroups {
+			creationTime := time.UnixMilli(*g.CreationTime)
+			current := LogGroupDetails{
+				FullName:     *g.LogGroupName,
+				Arn:          *g.Arn,
+				CreationTime: creationTime.Format("Jan 02, 2006 15:04:05 UTC"),
+				Age:          time.Since(creationTime).Round(time.Second).String(),
+			}
+
+			shortName := current.FullName
+			if len(shortName) > 100 {
+				shortName = fmt.Sprintf("%s...", shortName[:100])
+			}
+			current.ShortName = shortName
+
+			result = append(result, current)
+		}
+
+		in.NextToken = out.NextToken
+	}
+
+	return result, nil
+}
+
+func (cmd *ViewCmd) Run(cli *CLI) error {
+	logGroups, err := cli.listLogGroups()
+	if err != nil {
+		return fmt.Errorf("listing log groups: %w", err)
+	}
+
+	m := newSelectModel(logGroups)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+
+	returnModel, err := p.Run()
+	if err != nil {
+		return fmt.Errorf("running tea program to view logs: %w", err)
+	}
+
+	m, ok := returnModel.(selectModel)
+	if !ok {
+		return nil
+	}
+
+	detail, ok := m.list.SelectedItem().(LogGroupDetails)
+	if !ok {
+		return nil
+	}
+
+	finalMsg := lipgloss.NewStyle().
+		Padding(0, 2).
+		Foreground(lipgloss.Color("#438f39")).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#438f39")).
+		Render(fmt.Sprintf("Selected: %s", detail.FullName))
+
+	fmt.Println(finalMsg)
+
+	err = cli.tailLogs(detail.FullName)
+	if err != nil {
+		return fmt.Errorf("tailing logs: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) tailLogs(lgName string) error {
+	startTime := time.Now().Add(-1 * cli.Since).UnixMilli()
+	in := &cloudwatchlogs.FilterLogEventsInput{
+		LogGroupName: aws.String(lgName),
+		StartTime:    aws.Int64(startTime),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), cli.Timeout)
+	defer cancel()
+
+	seen := make(map[string]int64)
+
+	for {
+		paginator := cloudwatchlogs.NewFilterLogEventsPaginator(cli.cw, in)
+
+		for paginator.HasMorePages() {
+			out, err := paginator.NextPage(ctx)
+			if err != nil {
+				return fmt.Errorf("getting next page of log events: %w", err)
+			}
+
+			for _, e := range out.Events {
+				id := *e.EventId
+				if _, ok := seen[id]; ok {
+					continue
+				}
+
+				seen[id] = *e.Timestamp
+				t := time.UnixMilli(*e.Timestamp)
+				fmt.Printf("[%s] %s\n", t.Format(time.RFC3339), *e.Message)
+
+				in.StartTime = aws.Int64(max(*in.StartTime, *e.Timestamp))
+			}
+		}
+
+		// remove any messages older than 5s from the seen map
+		cutoff := *in.StartTime - 5_000
+		for id, t := range seen {
+			if t < cutoff {
+				delete(seen, id)
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			fmt.Printf("Provided timeout duration (%s) elapsed, stopping...", cli.Timeout)
+			return nil
+		case <-time.After(1 * time.Second):
+		}
+	}
+}
+
+func (lg LogGroupDetails) FilterValue() string {
+	return lg.FullName
+}
+
+func (lg LogGroupDetails) Title() string {
+	return lg.ShortName
+}
+
+func (lg LogGroupDetails) Description() string {
+	return lg.CreationTime
+}
