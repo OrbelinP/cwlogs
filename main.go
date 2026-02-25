@@ -16,22 +16,17 @@ import (
 type CLI struct {
 	cw *cloudwatchlogs.Client
 
-	View ViewCmd `cmd:"" help:"TUI version 2"`
-
 	Pattern *string       `name:"pattern" help:"CloudWatch describe log groups pattern"`
-	Since   time.Duration `name:"since" default:"1h" help:"CloudWatch describe log groups since"`
+	Since   time.Duration `name:"since" default:"0h" help:"CloudWatch describe log groups since"`
 
 	Timeout time.Duration `name:"timeout" default:"1h" help:"Timeout for tailing selected log group"`
+
+	Last bool `name:"last" default:"false" help:"Select most recently selected log group"`
 }
 
-type ViewCmd struct{}
-
 type LogGroupDetails struct {
-	FullName     string
-	ShortName    string
-	Arn          string
-	CreationTime string
-	Age          string
+	FullName  string `json:"fullName"`
+	ShortName string `json:"shortName"`
 }
 
 func main() {
@@ -42,9 +37,86 @@ func main() {
 
 	kongCtx := kong.Parse(&CLI{
 		cw: cloudwatchlogs.NewFromConfig(cfg),
-	})
+	},
+		kong.Name("cwlogs"),
+		kong.Description("A TUI tool to list and tail CloudWatch log groups"),
+		kong.UsageOnError(),
+	)
 	err = kongCtx.Run()
 	kongCtx.FatalIfErrorf(err)
+}
+
+func (cli *CLI) Run() error {
+	selected, err := cli.selectALogGroup()
+	if err != nil {
+		return fmt.Errorf("selecting a log group: %w", err)
+	}
+
+	if selected == nil {
+		return nil
+	}
+
+	detail := *selected
+	err = AddToHistory(detail)
+	if err != nil {
+		return fmt.Errorf("adding log group to history: %w", err)
+	}
+
+	finalMsg := lipgloss.NewStyle().
+		Padding(0, 2).
+		Foreground(lipgloss.Color("#438f39")).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#438f39")).
+		Render(fmt.Sprintf("Selected: %s", detail.FullName))
+
+	fmt.Println(finalMsg)
+
+	err = cli.tailLogs(detail.FullName)
+	if err != nil {
+		return fmt.Errorf("tailing logs: %w", err)
+	}
+
+	return nil
+}
+
+func (cli *CLI) selectALogGroup() (*LogGroupDetails, error) {
+	if cli.Last {
+		h, err := LoadHistory()
+		if err != nil {
+			return nil, fmt.Errorf("loading history: %w", err)
+		}
+
+		return &h.LogGroups[0], nil
+	}
+
+	logGroups, err := cli.listLogGroups()
+	if err != nil {
+		return nil, fmt.Errorf("listing log groups: %w", err)
+	}
+
+	m := newSelectModel(logGroups)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+
+	returnModel, err := p.Run()
+	if err != nil {
+		return nil, fmt.Errorf("running tea program to view logs: %w", err)
+	}
+
+	m, ok := returnModel.(selectModel)
+	if !ok {
+		return nil, nil
+	}
+
+	if m.selected == nil {
+		return nil, nil
+	}
+
+	detail, ok := (*m.selected).(LogGroupDetails)
+	if !ok {
+		return nil, nil
+	}
+
+	return &detail, nil
 }
 
 func (cli *CLI) listLogGroups() ([]LogGroupDetails, error) {
@@ -63,68 +135,13 @@ func (cli *CLI) listLogGroups() ([]LogGroupDetails, error) {
 		}
 
 		for _, g := range out.LogGroups {
-			creationTime := time.UnixMilli(*g.CreationTime)
-			current := LogGroupDetails{
-				FullName:     *g.LogGroupName,
-				Arn:          *g.Arn,
-				CreationTime: creationTime.Format("Jan 02, 2006 15:04:05 UTC"),
-				Age:          time.Since(creationTime).Round(time.Second).String(),
-			}
-
-			shortName := current.FullName
-			if len(shortName) > 100 {
-				shortName = fmt.Sprintf("%s...", shortName[:100])
-			}
-			current.ShortName = shortName
-
-			result = append(result, current)
+			result = append(result, toLogGroupDetails(*g.LogGroupName))
 		}
 
 		in.NextToken = out.NextToken
 	}
 
 	return result, nil
-}
-
-func (cmd *ViewCmd) Run(cli *CLI) error {
-	logGroups, err := cli.listLogGroups()
-	if err != nil {
-		return fmt.Errorf("listing log groups: %w", err)
-	}
-
-	m := newSelectModel(logGroups)
-	p := tea.NewProgram(m, tea.WithAltScreen())
-
-	returnModel, err := p.Run()
-	if err != nil {
-		return fmt.Errorf("running tea program to view logs: %w", err)
-	}
-
-	m, ok := returnModel.(selectModel)
-	if !ok {
-		return nil
-	}
-
-	detail, ok := m.list.SelectedItem().(LogGroupDetails)
-	if !ok {
-		return nil
-	}
-
-	finalMsg := lipgloss.NewStyle().
-		Padding(0, 2).
-		Foreground(lipgloss.Color("#438f39")).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#438f39")).
-		Render(fmt.Sprintf("Selected: %s", detail.FullName))
-
-	fmt.Println(finalMsg)
-
-	err = cli.tailLogs(detail.FullName)
-	if err != nil {
-		return fmt.Errorf("tailing logs: %w", err)
-	}
-
-	return nil
 }
 
 func (cli *CLI) tailLogs(lgName string) error {
@@ -188,5 +205,17 @@ func (lg LogGroupDetails) Title() string {
 }
 
 func (lg LogGroupDetails) Description() string {
-	return lg.CreationTime
+	return lg.ShortName
+}
+
+func toLogGroupDetails(name string) LogGroupDetails {
+	shortName := name
+	if len(shortName) > 100 {
+		shortName = fmt.Sprintf("%s...", shortName[:100])
+	}
+
+	return LogGroupDetails{
+		FullName:  name,
+		ShortName: shortName,
+	}
 }

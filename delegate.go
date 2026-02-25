@@ -21,7 +21,7 @@ func newItemDelegate() itemDelegate {
 
 	d.SetSpacing(0)
 
-	keys := newDelegatedKeyMap() // TODO remove?
+	keys := newDelegatedKeyMap()
 
 	help := []key.Binding{keys.choose}
 	d.ShortHelpFunc = func() []key.Binding { return help }
