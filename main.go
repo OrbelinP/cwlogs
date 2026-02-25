@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -16,12 +17,14 @@ import (
 type CLI struct {
 	cw *cloudwatchlogs.Client
 
-	Pattern *string       `name:"pattern" help:"CloudWatch describe log groups pattern"`
-	Since   time.Duration `name:"since" default:"0h" help:"CloudWatch describe log groups since"`
+	Pattern *string       `name:"pattern" short:"p" help:"CloudWatch describe log groups pattern"`
+	Since   time.Duration `name:"since" short:"s" default:"0h" help:"CloudWatch describe log groups since"`
 
-	Timeout time.Duration `name:"timeout" default:"1h" help:"Timeout for tailing selected log group"`
+	Timeout time.Duration `name:"timeout" short:"t" default:"1h" help:"Timeout for tailing selected log group"`
 
 	Last bool `name:"last" default:"false" help:"Select most recently selected log group"`
+
+	Version kong.VersionFlag `name:"version" help:"Show version information"`
 }
 
 type LogGroupDetails struct {
@@ -41,6 +44,7 @@ func main() {
 		kong.Name("cwlogs"),
 		kong.Description("A TUI tool to list and tail CloudWatch log groups"),
 		kong.UsageOnError(),
+		kong.Vars{"version": getVersion()},
 	)
 	err = kongCtx.Run()
 	kongCtx.FatalIfErrorf(err)
@@ -218,4 +222,17 @@ func toLogGroupDetails(name string) LogGroupDetails {
 		FullName:  name,
 		ShortName: shortName,
 	}
+}
+
+func getVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "(unknown)"
+	}
+
+	if info.Main.Version != "" {
+		return info.Main.Version
+	}
+
+	return "(unknown)"
 }
