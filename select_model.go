@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,10 +18,24 @@ var (
 			Padding(0, 1)
 )
 
+type listType int
+
+const (
+	fetchedList listType = iota
+	historyList
+)
+
 type selectModel struct {
 	// select view
-	list list.Model
-	keys *listKeyMap
+	listType listType
+	list     list.Model
+	keys     *listKeyMap
+	selected *list.Item
+
+	fetchedGroups []list.Item
+	historyGroups []list.Item
+
+	err error
 }
 
 func newSelectModel(logGroups []LogGroupDetails) selectModel {
@@ -35,20 +51,25 @@ func newSelectModel(logGroups []LogGroupDetails) selectModel {
 	logGroupList.Styles.Title = titleStyle
 	logGroupList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			listKeys.choose,
+			listKeys.toggleHistory,
 		}
 	}
 	logGroupList.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
-			listKeys.choose,
+			listKeys.toggleHistory,
 		}
 	}
+	logGroupList.KeyMap.ShowFullHelp = listKeys.showFullHelp
+	logGroupList.KeyMap.CloseFullHelp = listKeys.showShortHelp
+	logGroupList.KeyMap.Filter = listKeys.startFiltering
 
 	logGroupList.Paginator.PerPage = 20
 
 	return selectModel{
-		list: logGroupList,
-		keys: listKeys,
+		listType:      fetchedList,
+		list:          logGroupList,
+		keys:          listKeys,
+		fetchedGroups: items,
 	}
 }
 
@@ -69,7 +90,31 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if key.Matches(msg, m.keys.choose) {
+			m.selected = new(m.list.SelectedItem())
 			return m, tea.Quit
+		}
+
+		if key.Matches(msg, m.keys.toggleHistory) {
+			if m.listType == fetchedList {
+				if m.historyGroups == nil {
+					var err error
+					m.historyGroups, err = getHistoryLogGroups()
+					if err != nil {
+						m.err = err
+						return m, tea.Quit
+					}
+				}
+
+				m.list.Title = "History"
+				m.list.ResetFilter()
+				m.list.SetItems(m.historyGroups)
+				m.listType = historyList
+			} else {
+				m.list.ResetFilter()
+				m.list.Title = "Log Groups"
+				m.list.SetItems(m.fetchedGroups)
+				m.listType = fetchedList
+			}
 		}
 	}
 
@@ -85,7 +130,11 @@ func (m selectModel) View() string {
 }
 
 type listKeyMap struct {
-	choose key.Binding
+	choose         key.Binding
+	toggleHistory  key.Binding
+	showFullHelp   key.Binding
+	showShortHelp  key.Binding
+	startFiltering key.Binding
 }
 
 func newListKeyMap() *listKeyMap {
@@ -94,5 +143,35 @@ func newListKeyMap() *listKeyMap {
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "choose"),
 		),
+		toggleHistory: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("y", "toggle history"),
+		),
+		showFullHelp: key.NewBinding(
+			key.WithKeys("h"),
+			key.WithHelp("h", "more"),
+		),
+		showShortHelp: key.NewBinding(
+			key.WithKeys("h"),
+			key.WithHelp("h", "close help"),
+		),
+		startFiltering: key.NewBinding(
+			key.WithKeys("?"),
+			key.WithHelp("?", "filter"),
+		),
 	}
+}
+
+func getHistoryLogGroups() ([]list.Item, error) {
+	history, err := LoadHistory()
+	if err != nil {
+		return nil, fmt.Errorf("loading history: %w", err)
+	}
+
+	items := make([]list.Item, len(history.LogGroups))
+	for i, logGroup := range history.LogGroups {
+		items[i] = logGroup
+	}
+
+	return items, nil
 }
