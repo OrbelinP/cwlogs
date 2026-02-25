@@ -48,7 +48,10 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 		}
 	}
 
-	fmt.Fprint(w, fn(i.Title()))
+	_, err := fmt.Fprint(w, fn(i.Title()))
+	if err != nil {
+		panic(err)
+	}
 }
 
 type delegateKeyMap struct {

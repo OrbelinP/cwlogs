@@ -68,8 +68,7 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 
-		switch {
-		case key.Matches(msg, m.keys.choose):
+		if key.Matches(msg, m.keys.choose) {
 			return m, tea.Quit
 		}
 	}
