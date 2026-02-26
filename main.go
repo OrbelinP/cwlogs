@@ -6,12 +6,12 @@ import (
 	"runtime/debug"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/kong"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type CLI struct {
@@ -99,9 +99,7 @@ func (cli *CLI) selectALogGroup() (*LogGroupDetails, error) {
 	}
 
 	m := newSelectModel(logGroups)
-	p := tea.NewProgram(m, tea.WithAltScreen())
-
-	returnModel, err := p.Run()
+	returnModel, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return nil, fmt.Errorf("running tea program to view logs: %w", err)
 	}

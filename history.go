@@ -20,7 +20,7 @@ func historyPath() (string, error) {
 		return "", fmt.Errorf("getting user config dir: %w", err)
 	}
 
-	appDir := filepath.Join(dir, "cwlogs") // TODO this should be configurable ?
+	appDir := filepath.Join(dir, "cwlogs")
 
 	err = os.MkdirAll(appDir, 0700)
 	if err != nil {
