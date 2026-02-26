@@ -26,6 +26,8 @@ type CLI struct {
 
 	Last bool `name:"last" default:"false" help:"Select most recently selected log group"`
 
+	NoColor bool `name:"no-color" help:"Don't color output"`
+
 	Version kong.VersionFlag `name:"version" help:"Show version information"`
 }
 
@@ -175,8 +177,15 @@ func (cli *CLI) tailLogs(lgName string) error {
 				}
 
 				seen[id] = *e.Timestamp
-				t := time.UnixMilli(*e.Timestamp)
-				fmt.Fprintf(cli.w, "[%s] %s\n", t.Format(time.RFC3339), *e.Message)
+				t := time.UnixMilli(*e.Timestamp).Format(time.RFC3339)
+				ts := fmt.Sprintf("[%s]", t)
+				if !cli.NoColor {
+					ts = lipgloss.NewStyle().
+						Foreground(lipgloss.Cyan).
+						Render(ts)
+				}
+
+				fmt.Fprintf(cli.w, "%s %s\n", ts, *e.Message)
 
 				in.StartTime = aws.Int64(max(*in.StartTime, *e.Timestamp))
 			}
@@ -192,7 +201,7 @@ func (cli *CLI) tailLogs(lgName string) error {
 
 		select {
 		case <-ctx.Done():
-			fmt.Fprintf(cli.w, "Provided timeout duration (%s) elapsed, stopping...", cli.Timeout)
+			fmt.Fprintf(cli.w, "Provided timeout duration (%s) elapsed, stopping...\n", cli.Timeout)
 			return nil
 		case <-time.After(1 * time.Second):
 		}
