@@ -1,4 +1,4 @@
-package main
+package cwlogs
 
 import (
 	"encoding/json"
