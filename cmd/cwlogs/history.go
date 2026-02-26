@@ -7,9 +7,6 @@ import (
 	"path/filepath"
 )
 
-// TODO this should be configurable
-const maxHistory = 20
-
 type History struct {
 	LogGroups []LogGroupDetails `json:"fetchedGroups"`
 }
@@ -49,7 +46,7 @@ func LoadHistory(basePath string) (History, error) {
 	return res, nil
 }
 
-func AddToHistory(detail LogGroupDetails, basePath string) error {
+func AddToHistory(detail LogGroupDetails, basePath string, maxHistory int) error {
 	h, err := LoadHistory(basePath)
 	if err != nil {
 		return fmt.Errorf("loading history: %w", err)

@@ -40,8 +40,15 @@ linters:
           - lll
         source: "//nolint.*//"
       - linters:
+          - lll
+        source: "`.*help:.*"
+      - linters:
           - errcheck
         source: "fmt.Fprint.*"
+      - linters:
+          - gosec
+        text: "G705"
+        source: "fmt\\.Fprint"
   settings:
     nolintlint:
       require-explanation: true

@@ -21,14 +21,12 @@ type CLI struct {
 
 	Pattern *string       `name:"pattern" short:"p" help:"CloudWatch describe log groups pattern"`
 	Since   time.Duration `name:"since" short:"s" default:"0h" help:"CloudWatch describe log groups since"`
-
 	Timeout time.Duration `name:"timeout" short:"t" default:"1h" help:"Timeout for tailing selected log group"`
+	Last    bool          `name:"last" default:"false" help:"Select most recently selected log group"`
 
-	Last bool `name:"last" default:"false" help:"Select most recently selected log group"`
-
-	NoColor bool `name:"no-color" help:"Don't color output"`
-
-	Version kong.VersionFlag `name:"version" help:"Show version information"`
+	Config         kong.ConfigFlag  `short:"c" placeholder:"~/.cwlogs.yaml" help:"Path to config file"`
+	MaxHistorySize int              `name:"max-history-size" default:"20" help:"Maximum number of log groups to keep in history"`
+	Version        kong.VersionFlag `name:"version" help:"Show version information"`
 }
 
 type LogGroupDetails struct {
@@ -60,7 +58,7 @@ func (cli *CLI) Run() error {
 	}
 
 	detail := *selected
-	err = AddToHistory(detail, cli.configBasePath)
+	err = AddToHistory(detail, cli.configBasePath, cli.MaxHistorySize)
 	if err != nil {
 		return fmt.Errorf("adding log group to history: %w", err)
 	}
@@ -178,12 +176,9 @@ func (cli *CLI) tailLogs(lgName string) error {
 
 				seen[id] = *e.Timestamp
 				t := time.UnixMilli(*e.Timestamp).Format(time.RFC3339)
-				ts := fmt.Sprintf("[%s]", t)
-				if !cli.NoColor {
-					ts = lipgloss.NewStyle().
-						Foreground(lipgloss.Cyan).
-						Render(ts)
-				}
+				ts := lipgloss.NewStyle().
+					Foreground(lipgloss.Cyan).
+					Render(fmt.Sprintf("[%s]", t))
 
 				fmt.Fprintf(cli.w, "%s %s\n", ts, *e.Message)
 

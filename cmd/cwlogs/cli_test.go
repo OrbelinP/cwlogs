@@ -70,9 +70,9 @@ func TestCLI_Run(t *testing.T) {
 		detailTwo := LogGroupDetails{FullName: "detail two", ShortName: "two"}
 		detailThree := LogGroupDetails{FullName: "detail three", ShortName: "three"}
 
-		require.NoError(t, AddToHistory(detailOne, tmp))
-		require.NoError(t, AddToHistory(detailTwo, tmp))
-		require.NoError(t, AddToHistory(detailThree, tmp))
+		require.NoError(t, AddToHistory(detailOne, tmp, 20))
+		require.NoError(t, AddToHistory(detailTwo, tmp, 20))
+		require.NoError(t, AddToHistory(detailThree, tmp, 20))
 
 		history, err := LoadHistory(tmp)
 		require.NoError(t, err)
