@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 var (
@@ -125,8 +125,10 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m selectModel) View() string {
-	return appStyle.Render(m.list.View())
+func (m selectModel) View() tea.View {
+	v := tea.NewView(appStyle.Render(m.list.View()))
+	v.AltScreen = true
+	return v
 }
 
 type listKeyMap struct {
