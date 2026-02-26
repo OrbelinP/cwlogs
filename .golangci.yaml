@@ -39,6 +39,9 @@ linters:
       - linters:
           - lll
         source: "//nolint.*//"
+      - linters:
+          - errcheck
+        source: "fmt.Fprint.*"
   settings:
     nolintlint:
       require-explanation: true

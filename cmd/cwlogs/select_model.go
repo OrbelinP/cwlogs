@@ -1,7 +1,8 @@
-package main
+package cwlogs
 
 import (
 	"fmt"
+	"os"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
@@ -26,6 +27,8 @@ const (
 )
 
 type selectModel struct {
+	configDir string
+
 	// select view
 	listType listType
 	list     list.Model
@@ -39,6 +42,11 @@ type selectModel struct {
 }
 
 func newSelectModel(logGroups []LogGroupDetails) selectModel {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		panic(err)
+	}
+
 	items := make([]list.Item, len(logGroups))
 	for i, logGroup := range logGroups {
 		items[i] = logGroup
@@ -66,6 +74,7 @@ func newSelectModel(logGroups []LogGroupDetails) selectModel {
 	logGroupList.Paginator.PerPage = 20
 
 	return selectModel{
+		configDir:     configDir,
 		listType:      fetchedList,
 		list:          logGroupList,
 		keys:          listKeys,
@@ -98,7 +107,7 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.listType == fetchedList {
 				if m.historyGroups == nil {
 					var err error
-					m.historyGroups, err = getHistoryLogGroups()
+					m.historyGroups, err = getHistoryLogGroups(m.configDir)
 					if err != nil {
 						m.err = err
 						return m, tea.Quit
@@ -164,8 +173,8 @@ func newListKeyMap() *listKeyMap {
 	}
 }
 
-func getHistoryLogGroups() ([]list.Item, error) {
-	history, err := LoadHistory()
+func getHistoryLogGroups(basePath string) ([]list.Item, error) {
+	history, err := LoadHistory(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("loading history: %w", err)
 	}
