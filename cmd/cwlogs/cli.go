@@ -2,19 +2,22 @@ package cwlogs
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/kong"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 )
 
 type CLI struct {
-	cw *cloudwatchlogs.Client
+	cw             CloudWatchClient
+	w              io.Writer
+	configBasePath string
 
 	Pattern *string       `name:"pattern" short:"p" help:"CloudWatch describe log groups pattern"`
 	Since   time.Duration `name:"since" short:"s" default:"0h" help:"CloudWatch describe log groups since"`
@@ -31,19 +34,22 @@ type LogGroupDetails struct {
 	ShortName string `json:"shortName"`
 }
 
-func NewCLI() (*CLI, error) {
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("loading default config: %w", err)
-	}
-
+func NewCLI(cw CloudWatchClient, w io.Writer, configBasePath string) (*CLI, error) {
 	return &CLI{
-		cw: cloudwatchlogs.NewFromConfig(cfg),
+		cw:             cw,
+		w:              w,
+		configBasePath: configBasePath,
 	}, nil
 }
+
 func (cli *CLI) Run() error {
 	selected, err := cli.selectALogGroup()
 	if err != nil {
+		if errors.Is(err, ErrNoLogGroups) {
+			fmt.Fprintf(cli.w, "No log groups in history")
+			return nil
+		}
+
 		return fmt.Errorf("selecting a log group: %w", err)
 	}
 
@@ -52,7 +58,7 @@ func (cli *CLI) Run() error {
 	}
 
 	detail := *selected
-	err = AddToHistory(detail)
+	err = AddToHistory(detail, cli.configBasePath)
 	if err != nil {
 		return fmt.Errorf("adding log group to history: %w", err)
 	}
@@ -64,7 +70,7 @@ func (cli *CLI) Run() error {
 		BorderForeground(lipgloss.Color("#438f39")).
 		Render(fmt.Sprintf("Selected: %s", detail.FullName))
 
-	fmt.Println(finalMsg)
+	fmt.Fprintln(cli.w, finalMsg)
 
 	err = cli.tailLogs(detail.FullName)
 	if err != nil {
@@ -76,9 +82,13 @@ func (cli *CLI) Run() error {
 
 func (cli *CLI) selectALogGroup() (*LogGroupDetails, error) {
 	if cli.Last {
-		h, err := LoadHistory()
+		h, err := LoadHistory(cli.configBasePath)
 		if err != nil {
 			return nil, fmt.Errorf("loading history: %w", err)
+		}
+
+		if len(h.LogGroups) == 0 {
+			return nil, ErrNoLogGroups
 		}
 
 		return &h.LogGroups[0], nil
@@ -166,7 +176,7 @@ func (cli *CLI) tailLogs(lgName string) error {
 
 				seen[id] = *e.Timestamp
 				t := time.UnixMilli(*e.Timestamp)
-				fmt.Printf("[%s] %s\n", t.Format(time.RFC3339), *e.Message)
+				fmt.Fprintf(cli.w, "[%s] %s\n", t.Format(time.RFC3339), *e.Message)
 
 				in.StartTime = aws.Int64(max(*in.StartTime, *e.Timestamp))
 			}
@@ -182,7 +192,7 @@ func (cli *CLI) tailLogs(lgName string) error {
 
 		select {
 		case <-ctx.Done():
-			fmt.Printf("Provided timeout duration (%s) elapsed, stopping...", cli.Timeout)
+			fmt.Fprintf(cli.w, "Provided timeout duration (%s) elapsed, stopping...", cli.Timeout)
 			return nil
 		case <-time.After(1 * time.Second):
 		}
@@ -212,3 +222,5 @@ func toLogGroupDetails(name string) LogGroupDetails {
 		ShortName: shortName,
 	}
 }
+
+var ErrNoLogGroups = errors.New("no log groups in history")

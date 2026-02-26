@@ -1,0 +1,3 @@
+mocks:
+	@rm -r cmd/cwlogs/mocks
+	@go generate ./...

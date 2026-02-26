@@ -14,15 +14,10 @@ type History struct {
 	LogGroups []LogGroupDetails `json:"fetchedGroups"`
 }
 
-func historyPath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("getting user config dir: %w", err)
-	}
+func historyPath(basePath string) (string, error) {
+	appDir := filepath.Join(basePath, "cwlogs")
 
-	appDir := filepath.Join(dir, "cwlogs")
-
-	err = os.MkdirAll(appDir, 0700)
+	err := os.MkdirAll(appDir, 0700)
 	if err != nil {
 		return "", fmt.Errorf("creating app dir: %w", err)
 	}
@@ -30,8 +25,8 @@ func historyPath() (string, error) {
 	return filepath.Join(appDir, "history.json"), nil
 }
 
-func LoadHistory() (History, error) {
-	path, err := historyPath()
+func LoadHistory(basePath string) (History, error) {
+	path, err := historyPath(basePath)
 	if err != nil {
 		return History{}, fmt.Errorf("getting history path: %w", err)
 	}
@@ -54,8 +49,8 @@ func LoadHistory() (History, error) {
 	return res, nil
 }
 
-func AddToHistory(detail LogGroupDetails) error {
-	h, err := LoadHistory()
+func AddToHistory(detail LogGroupDetails, basePath string) error {
+	h, err := LoadHistory(basePath)
 	if err != nil {
 		return fmt.Errorf("loading history: %w", err)
 	}
@@ -73,7 +68,7 @@ func AddToHistory(detail LogGroupDetails) error {
 		h.LogGroups = h.LogGroups[:maxHistory]
 	}
 
-	path, err := historyPath()
+	path, err := historyPath(basePath)
 	if err != nil {
 		return fmt.Errorf("getting history path: %w", err)
 	}
